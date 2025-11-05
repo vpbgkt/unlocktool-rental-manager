@@ -1,0 +1,6 @@
+selenium>=4.9.0
+undetected-chromedriver==3.5.5
+APScheduler==3.10.4
+requests==2.31.0
+python-dotenv==1.0.0
+setuptools>=65.0.0
