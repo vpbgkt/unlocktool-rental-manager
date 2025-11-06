@@ -20,10 +20,19 @@ class PasswordResetDB:
         self.db_path = db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         self.init_schema()
+        
+        # Enable WAL mode for better concurrent access
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.close()
+
+    def _get_connection(self):
+        """Get a database connection with proper timeout."""
+        return sqlite3.connect(self.db_path, timeout=30.0)
 
     def init_schema(self):
         """Initialize database schema if it doesn't exist."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection() if hasattr(self, '_get_connection') else sqlite3.connect(self.db_path, timeout=30.0)
         cursor = conn.cursor()
 
         # Websites/Tools table
@@ -120,7 +129,7 @@ class PasswordResetDB:
         Returns:
             Website ID
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -138,7 +147,7 @@ class PasswordResetDB:
 
     def get_website(self, name: str) -> Optional[Dict]:
         """Get website details by name."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("SELECT * FROM websites WHERE name = ?", (name,))
@@ -171,7 +180,7 @@ class PasswordResetDB:
         Returns:
             Account ID
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Get website ID
@@ -208,7 +217,7 @@ class PasswordResetDB:
             new_password: New password
             status: 'success' or 'failed'
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Update current password
@@ -237,7 +246,7 @@ class PasswordResetDB:
         Returns:
             List of available accounts
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # First, mark expired rentals as available
@@ -279,7 +288,7 @@ class PasswordResetDB:
         Returns:
             Dictionary with rental details
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Get account and website details
@@ -305,6 +314,8 @@ class PasswordResetDB:
             VALUES (?, ?, ?, ?, ?)
         """, (account_id, customer_name, customer_email, customer_phone, expires_at))
 
+        rental_id = cursor.lastrowid
+
         # Mark account as rented
         cursor.execute("""
             UPDATE accounts 
@@ -316,6 +327,7 @@ class PasswordResetDB:
         conn.close()
 
         return {
+            'id': rental_id,
             'account_id': account[0],
             'username': account[1],
             'password': account[2],
@@ -332,7 +344,7 @@ class PasswordResetDB:
         Args:
             account_id: ID of the account
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -360,7 +372,7 @@ class PasswordResetDB:
             account_id: ID of the account
             reason: Reason for exception (e.g., 'wrong_password', 'customer_changed', 'hacked')
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -383,7 +395,7 @@ class PasswordResetDB:
             account_id: ID of the account
             new_password: The correct password
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -401,7 +413,7 @@ class PasswordResetDB:
 
     def get_exception_accounts(self) -> List[Dict]:
         """Get all accounts marked with exceptions."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -422,7 +434,7 @@ class PasswordResetDB:
 
     def get_active_rentals(self) -> List[Dict]:
         """Get all currently active rentals."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -453,7 +465,7 @@ class PasswordResetDB:
         Returns:
             List of password changes
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -474,7 +486,7 @@ class PasswordResetDB:
 
     def log_reset(self, account_id: int, status: str, message: str = None):
         """Log a password reset attempt (legacy method)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -495,7 +507,7 @@ class PasswordResetDB:
             error_message: Error message
             traceback_str: Full traceback
         """
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -510,7 +522,7 @@ class PasswordResetDB:
 
     def get_dashboard_stats(self) -> Dict:
         """Get overall system statistics for dashboard."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         # Total accounts by status
@@ -552,7 +564,7 @@ class PasswordResetDB:
 
     def get_account_stats(self, account_id: int) -> Dict:
         """Get statistics for a specific account (legacy method)."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
@@ -591,7 +603,7 @@ class PasswordResetDB:
 
     def get_all_accounts_summary(self) -> List[Dict]:
         """Get summary of all accounts."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._get_connection()
         cursor = conn.cursor()
 
         cursor.execute("""
