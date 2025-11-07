@@ -17,7 +17,7 @@ def main():
     )
     parser.add_argument(
         '--mode',
-        choices=['run-once', 'schedule', 'daemon'],
+        choices=['run-once', 'schedule', 'daemon', 'check-rentals'],
         default='daemon',
         help='Execution mode'
     )
@@ -61,7 +61,23 @@ def main():
     scheduler = ResetScheduler()
 
     try:
-        if args.mode == 'run-once':
+        if args.mode == 'check-rentals':
+            logger.info("Checking rental status...")
+            scheduler.display_rental_status()
+            
+            # Ask if user wants to proceed with resets
+            expiring = scheduler.check_rental_expiry(warning_minutes=30)
+            urgent = [acc for acc in expiring if acc['should_reset_now']]
+            
+            if urgent:
+                print(f"\n⚠️  {len(urgent)} account(s) need immediate password reset!")
+                response = input("Do you want to reset passwords now? (yes/no): ").strip().lower()
+                if response in ['yes', 'y']:
+                    logger.info("Starting password resets...")
+                    results = scheduler.run_now()
+                    logger.info(f"Results: {results}")
+            
+        elif args.mode == 'run-once':
             logger.info("Running password resets once...")
             results = scheduler.run_now()
             logger.info(f"Results: {results}")

@@ -6,11 +6,20 @@ Provides endpoints for account rental management
 from flask import Flask, request, jsonify
 from functools import wraps
 from src.database import PasswordResetDB
+from src.supabase_db import SupabaseDB
 from src.api_manager import APIManager
 from datetime import datetime
 
 app = Flask(__name__)
-db = PasswordResetDB()
+
+# Use Supabase as primary database, SQLite as fallback
+try:
+    db = SupabaseDB()
+    print("✓ Using Supabase cloud database")
+except Exception as e:
+    print(f"⚠ Supabase not available, falling back to SQLite: {e}")
+    db = PasswordResetDB()
+
 api_manager = APIManager()
 
 
@@ -72,17 +81,21 @@ def get_available_accounts():
     website = request.args.get('website')
     
     try:
-        accounts = db.get_available_accounts(website)
+        # Use Supabase's built-in function for auto-expiry
+        if isinstance(db, SupabaseDB) and website:
+            accounts = db.get_available_accounts(website)
+        else:
+            accounts = db.get_available_accounts(website)
         
         # Don't return passwords - only metadata
         safe_accounts = []
         for acc in accounts:
             safe_accounts.append({
-                'id': acc['id'],
-                'website': acc['website'],
-                'username': acc['username'],
-                'email': acc['email'],
-                'validity_hours': acc.get('validity_hours'),
+                'id': acc.get('id'),
+                'website': acc.get('website') or acc.get('websites', {}).get('name'),
+                'username': acc.get('username'),
+                'email': acc.get('email'),
+                'validity_hours': acc.get('validity_hours') or acc.get('websites', {}).get('validity_hours'),
                 'last_reset': acc.get('last_reset')
             })
         
@@ -90,6 +103,7 @@ def get_available_accounts():
             'success': True,
             'count': len(safe_accounts),
             'accounts': safe_accounts,
+            'database': 'Supabase' if isinstance(db, SupabaseDB) else 'SQLite',
             'timestamp': datetime.now().isoformat()
         })
     
@@ -122,7 +136,16 @@ def rent_account():
     
     try:
         # Get available accounts for this website
-        accounts = db.get_available_accounts(website)
+        if isinstance(db, SupabaseDB):
+            accounts = db.get_available_accounts(website)
+            # Supabase returns different format
+            if accounts:
+                account = accounts[0]
+                # Get website details
+                website_info = db.get_website(website)
+                account['validity_hours'] = website_info['validity_hours']
+        else:
+            accounts = db.get_available_accounts(website)
         
         if not accounts:
             return jsonify({
@@ -133,7 +156,19 @@ def rent_account():
         
         # Rent the first available account
         account = accounts[0]
-        rental = db.rent_account(account['id'], customer_info)
+        customer_name = data.get('customer_name', customer_info)
+        customer_email = data.get('customer_email')
+        customer_phone = data.get('customer_phone')
+        
+        if isinstance(db, SupabaseDB):
+            rental = db.rent_account(
+                account_id=account['id'],
+                customer_name=customer_name,
+                customer_email=customer_email,
+                customer_phone=customer_phone
+            )
+        else:
+            rental = db.rent_account(account['id'], customer_info)
         
         # Log the API request
         api_manager.log_api_request(
@@ -149,16 +184,17 @@ def rent_account():
         return jsonify({
             'success': True,
             'account': {
-                'id': account['id'],
-                'website': website,
-                'username': account['username'],
-                'password': account['password'],
-                'email': account['email'],
-                'validity_hours': account.get('validity_hours'),
-                'rental_id': rental['id'],
-                'expires_at': rental['expires_at']
+                'id': rental.get('account_id') or account['id'],
+                'website': rental.get('website') or website,
+                'username': rental.get('username') or account['username'],
+                'password': rental.get('password') or account.get('current_password') or account.get('password'),
+                'email': account.get('email'),
+                'validity_hours': rental.get('validity_hours') or account.get('validity_hours'),
+                'rental_id': rental.get('id'),
+                'expires_at': rental.get('expires_at')
             },
-            'message': f'Account rented successfully. Valid until {rental["expires_at"]}',
+            'message': f'Account rented successfully. Valid until {rental.get("expires_at")}',
+            'database': 'Supabase' if isinstance(db, SupabaseDB) else 'SQLite',
             'timestamp': datetime.now().isoformat()
         })
     
